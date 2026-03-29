@@ -1,44 +1,50 @@
-Arduino-Based Inverted Pendulum Stabilization using PD Control
+# Arduino-Based Inverted Pendulum Stabilization using PD Control
 
-This project focuses on building and controlling an inverted pendulum on a wheeled cart, a well-known problem in control engineering used to study system stability. The goal is to keep the pendulum balanced upright, even though it is naturally unstable, by using real-time feedback control.
-The hardware setup uses an Arduino-based mobile platform, where the angle of the pendulum is measured using a quadrature encoder. A Proportional–Derivative (PD) controller processes this information and continuously adjusts the motor input to keep the system balanced. The controller works by correcting the tilt and reducing oscillations to maintain stability.
-Alongside the hardware implementation, a state-space model of the system is developed and analyzed using pole placement techniques. This helps in understanding the system behavior theoretically and provides a comparison between classical control (PD) and modern control methods.
+This project focuses on stabilizing an inverted pendulum — a classic problem in control systems — using an Arduino-based setup. Since the pendulum is naturally unstable, the goal is to keep it balanced upright using continuous real-time feedback.
 
-Key Features
-•Real-time stabilization of the inverted pendulum using embedded control
-•PD controller with derivative filtering to reduce noise effects
-•Accurate angle measurement using a quadrature encoder with interrupts
-•Motor control using PWM signals through an L298N driver
-•Built-in safety mechanism to stop the system if the pendulum tilts too far
-•State-space modeling and pole placement-based control in simulation
+## Overview
+In this project, I built a wheeled cart system with a vertical pendulum and implemented a control strategy to keep it balanced. The angle of the pendulum is measured using a quadrature encoder, and based on this, corrective action is taken to maintain stability.
 
-Control Strategy
-The hardware system is controlled using a PD controller, given by:
-u(t) = − (Kp·θ + Kd·θ̇)
-
-Here, the proportional term corrects the angle error, while the derivative term helps reduce oscillations and improves stability. A low-pass filter is applied to the derivative term to make the system less sensitive to noise.
-In simulation, state feedback control using pole placement is used. By placing the system poles at desired locations, the system’s stability and response can be shaped more precisely.
+The entire system runs in real time, where sensing, computation, and actuation happen continuously.
 
 
-Implementation Details
-•Control loop runs at approximately 200 Hz using micros()
-•Encoder signals are processed using hardware interrupts
-•Angle and angular velocity are computed in real time
-•Motors are driven using bidirectional PWM signals
-•System design separates sensing, control, and actuation for clarity
-
-Outcome
-The system is able to balance the pendulum around the upright position with reasonable stability after proper tuning. The response is quick, and oscillations are minimized. During development, practical challenges such as sensor noise, controller tuning, and mechanical imperfections were encountered and addressed.
-
-Applications
-
-The concepts used in this project are relevant to:
-
-•Self-balancing robots and vehicles
-•Aerospace and rocket stabilization systems
-•Robotics and automation
-•Teaching and research in control systems
+## Key Features
+- Real-time stabilization of the inverted pendulum  
+- Implementation of a PD controller  
+- Angle measurement using a quadrature encoder  
+- PWM-based motor control using L298N driver  
+- Safety mechanism for large tilt angles  
+- Simulation using state-space modeling and pole placement  
 
 
-Conclusion
-This project brings together theory and practice by implementing control concepts on a real system. It demonstrates how a simple PD controller can effectively stabilize an unstable system, while also highlighting the usefulness of state-space methods for deeper analysis and design.
+## Control Strategy
+The system is controlled using a PD controller:
+
+u(t) = - (Kp * θ + Kd * dθ/dt)
+
+Here, the proportional term helps correct the angle error, while the derivative term reduces oscillations and improves stability. A low-pass filter is used with the derivative term to reduce noise effects.
+
+
+## Implementation Details
+- The control loop runs at approximately 200 Hz using `micros()`  
+- Encoder signals are processed using interrupts  
+- Angle and angular velocity are computed in real time  
+- Motors are controlled using bidirectional PWM signals  
+- The system is structured into sensing, control, and actuation blocks  
+
+## Outcome
+After tuning the controller, the system is able to balance the pendulum near the upright position. The response is quick, and oscillations are reduced to a reasonable level.
+
+During implementation, challenges like sensor noise, tuning of controller gains, and mechanical imperfections were encountered and handled.
+
+
+## Applications
+- Self-balancing robots  
+- Robotics and automation  
+- Aerospace stabilization systems  
+- Control systems education  
+
+
+## Conclusion
+This project helped in understanding how control theory works in practice. It shows how a relatively simple controller like PD can stabilize an unstable system when implemented properly in real time.
+
