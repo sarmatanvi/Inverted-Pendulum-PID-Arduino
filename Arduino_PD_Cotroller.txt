@@ -1,0 +1,195 @@
+// ==========================================================
+// INVERTED CART-PENDULUM (Improved, AVR-safe)
+// Quadrature encoder (pins 21,20) on Arduino Mega
+// L298N (two sides), four motors assumed wired per side
+// PD controller with derivative filtering, micros() timing
+// ==========================================================
+
+volatile long encoderPos = 0;
+volatile bool lastA = 0;
+volatile bool lastB = 0;
+
+// --- Encoder specs ---
+// Set this to your encoder pulses-per-revolution (PPR, pulses on channel A per mech rev).
+// For quadrature counters, effective counts per rev (CPR) = PPR * 4
+const unsigned int ENC_PPR = 300;   // <-- set this to your encoder's PPR (example)
+const float CPR = ENC_PPR * 4.0;    // counts per revolution (quadrature)
+const float DEG_PER_COUNT = 360.0 / CPR;
+
+// Adjust so upright = 0 degrees (calibrate)
+float OFFSET = 0.0;
+
+// --- Motor pins ---
+const int ENA = 10;     // PWM left
+const int IN1 = 48;
+const int IN2 = 50;
+
+const int ENB = 12;     // PWM right
+const int IN3 = 44;
+const int IN4 = 46;
+
+// --- Control gains (safe small defaults) ---
+float Kp = 200.0;     // start small
+float Kd = 0.5;
+
+// Scale controller output (units: deg * gain -> PWM). Tune as you test.
+float outputScale = 3.0;  // multiplier to map controller output to PWM. Lower -> safer.
+
+// Safety
+const float targetAngle = 0.0;
+const float FALL_ANGLE = 85.0;   // degrees
+const int maxPWM = 180;          // absolute PWM limit while tuning
+
+// Derivative filter
+float angleDotFiltered = 0.0;
+const float derivCutoffHz = 20.0;  // filter cutoff (Hz) - lower -> smoother derivative
+float alpha = 0.9;                 // will be computed from dt
+
+// Loop timing
+unsigned long lastTimeUs = 0;
+float lastAngle = 0.0;
+
+// --- ISR handlers (plain functions for AVR) ---
+void handleEncoderA() {
+  bool A = digitalRead(21);
+  bool B = digitalRead(20);
+  // Quadrature decode on A edge
+  if (A != lastA) {
+    if (A == B) encoderPos++;
+    else encoderPos--;
+  }
+  lastA = A;
+  lastB = B;
+}
+
+void handleEncoderB() {
+  bool A = digitalRead(21);
+  bool B = digitalRead(20);
+  // Quadrature decode on B edge
+  if (B != lastB) {
+    if (A != B) encoderPos++;
+    else encoderPos--;
+  }
+  lastA = A;
+  lastB = B;
+}
+
+void driveMotors(int pwm) {
+  pwm = constrain(pwm, -maxPWM, maxPWM);
+
+  if (pwm > 0) {
+    // Forward
+    digitalWrite(IN1, HIGH);
+    digitalWrite(IN2, LOW);
+    digitalWrite(IN3, HIGH);
+    digitalWrite(IN4, LOW);
+    analogWrite(ENA, pwm);
+    analogWrite(ENB, pwm);
+  }
+  else if (pwm < 0) {
+    int speed = -pwm;
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, HIGH);
+    digitalWrite(IN3, LOW);
+    digitalWrite(IN4, HIGH);
+    analogWrite(ENA, speed);
+    analogWrite(ENB, speed);
+  }
+  else {
+    analogWrite(ENA, 0);
+    analogWrite(ENB, 0);
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  // Encoder pins
+  pinMode(21, INPUT_PULLUP);
+  pinMode(20, INPUT_PULLUP);
+  lastA = digitalRead(21);
+  lastB = digitalRead(20);
+
+  // Attach interrupts to both channels for robust quadrature
+  attachInterrupt(digitalPinToInterrupt(21), handleEncoderA, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(20), handleEncoderB, CHANGE);
+
+  // Motor pins
+  pinMode(ENA, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(ENB, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+
+  driveMotors(0);
+  lastTimeUs = micros();
+
+  // initial derivative filter alpha placeholder; will be updated each loop using dt
+  alpha = 0.9;
+}
+
+void loop() {
+  unsigned long nowUs = micros();
+  unsigned long dtUs = nowUs - lastTimeUs;
+
+  // target loop every 5000 us -> 200 Hz. But loop runs whenever dt >= 4000 us to be responsive.
+  if (dtUs < 4000) return;
+
+  float dt = dtUs / 1e6;  // seconds
+  lastTimeUs = nowUs;
+
+  // compute alpha for first-order low-pass on derivative (discrete)
+  float RC = 1.0 / (2.0 * PI * derivCutoffHz);  // time constant
+  alpha = RC / (RC + dt);                      // 0..1, higher => smoother
+
+  // read encoder atomically
+  long pos;
+  noInterrupts();
+  pos = encoderPos;
+  interrupts();
+
+  float angle = pos * DEG_PER_COUNT + OFFSET;  // degrees
+  angle = -angle; // maintain your sign convention (if needed)
+
+  // wrap to [-180,180]
+  while (angle > 180.0) angle -= 360.0;
+  while (angle < -180.0) angle += 360.0;
+
+  // safety: if pendulum has fallen too far, cut motors and halt
+  if (fabs(angle) > FALL_ANGLE) {
+    driveMotors(0);
+    Serial.print("FALL! Angle = ");
+    Serial.println(angle);
+    // loop forever in safe state; require reset to restart (prevents motors re-engaging)
+    while (1) {
+      delay(100);
+    }
+  }
+
+  // derivative (raw)
+  float angleDotRaw = (angle - lastAngle) / dt; // deg/s
+  lastAngle = angle;
+
+  // low-pass filter derivative
+  angleDotFiltered = alpha * angleDotFiltered + (1.0 - alpha) * angleDotRaw;
+
+  // PD control (angles in degrees)
+  float control = -(Kp * angle + Kd * angleDotFiltered);
+
+  // scale into PWM
+  float pwmF = control * outputScale;
+  int pwm = (int)constrain(round(pwmF), -maxPWM, maxPWM);
+
+  driveMotors(pwm);
+
+  // debug print at lower rate
+  static unsigned long lastPrint = 0;
+  if (millis() - lastPrint > 80) {
+    lastPrint = millis();
+    Serial.print("angle: "); Serial.print(angle, 2);
+    Serial.print(" deg  d: "); Serial.print(angleDotFiltered, 2);
+    Serial.print(" deg/s  ctrl: "); Serial.print(control, 2);
+    Serial.print("  pwm: "); Serial.println(pwm);
+  }
+}
